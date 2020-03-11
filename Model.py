@@ -38,7 +38,7 @@ class Attention(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         self.W = self.add_weight(shape=(input_shape[-1], input_shape[-1]))
-        self.b = self.add_weight(shape=(1, input_shape[-1]))
+        self.b = self.add_weight(shape=(1, input_shape[-1]), trainable=self.is_doc)
 
     def call(self, inputs):
         num_step = inputs.shape[1]
@@ -86,7 +86,7 @@ class Model(tf.keras.Model):
         # word embedding
         self.word_embed = tf.keras.layers.Embedding(self.vocab_size, self.word_embed_dim)
         # doc embedding
-        self.doc_embed = tf.keras.layers.Embedding(self.vocab_size, self.word_embed_dim)
+        # self.doc_embed = tf.keras.layers.Embedding(self.vocab_size, self.word_embed_dim)
 
         self.types_num = types_num
         self.types_embed_dim = types_embed_dim
@@ -101,12 +101,12 @@ class Model(tf.keras.Model):
 
         self.attention = Attention()
 
-        self.doc_bilstm = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_dim))
+        #self.doc_bilstm = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_dim))
 
         self.lstm_decoder = LSTM_decoder(lstm_dim, lstm_dim)
         self.lstm_decoder2 = LSTM_decoder(lstm_dim, lstm_dim)
         self.tag_attention = Attention()
-        self.doc_attention = Attention(is_doc=True)
+        #self.doc_attention = Attention(is_doc=True)
 
         self.dense = tf.keras.layers.Dense(num_tags)
 
@@ -122,44 +122,47 @@ class Model(tf.keras.Model):
         return states_list
 
     def sent_embedding(self, word_as_num, types, subtypes):
-
         word_embed = self.word_embed(word_as_num)
         type_embed = self.types_embed(types)
         subtype_embed = self.subtypes_embed(subtypes)
         embed = tf.concat([word_embed, type_embed, subtype_embed], -1)
         return embed
-    def get_loss(self, logits, tags, length):
+
+    def get_loss(self, logits, tags, signal):
         losses = tf.keras.losses.sparse_categorical_crossentropy(tags, logits)
-        mask = tf.sequence_mask(length)
-        print(mask.shape)
-        print(losses.shape)
-        losses = tf.boolean_mask(losses, mask)
-        print(losses.shape)
+        losses = tf.boolean_mask(losses, signal)
+
+        tag_NOT_O = tf.sign(tf.abs(tags))
+        tag_NOT_O = tf.boolean_mask(tag_NOT_O, signal)
+
+        ones = tf.ones_like(tag_NOT_O)
+        tag_is_O = ones - tag_NOT_O
+        tag_is_O = tf.cast(tag_is_O, dtype=tf.float32)
+        tag_NOT_O = tf.cast(tag_NOT_O, dtype=tf.float32)
+
+        alpha = 5
+        losses = alpha * (losses * tag_NOT_O) + losses * tag_is_O
+        loss = tf.reduce_sum(losses)
+        return loss
 
     def call(self, inputs):
         _, doc_around_sents, word_as_num, types, subtypes, tags = inputs
         # 有效长度
         used = tf.sign(tf.abs(word_as_num))
-        length = tf.reduce_sum(used, axis=-1)
-        print("------------------")
-        print(length)
-        print(length.shape)
+        signal = tf.math.equal(used, tf.ones_like(used))
         sent_embed = self.sent_embedding(word_as_num, types, subtypes)
-        doc_embed = self.doc_embedding(doc_around_sents)
+        #doc_embed = self.doc_embedding(doc_around_sents)
         outputs, h = self.sent_layer(sent_embed)
         sent_att_outputs = self.attention(outputs)
         net_inputs = tf.concat([sent_embed, sent_att_outputs], -1)
         outputs = self.lstm_decoder(net_inputs)
 
-
         tag_attention = self.tag_attention(outputs)
-
         net_inputs = tf.concat([tag_attention, sent_embed], -1)
-
         outputs = self.lstm_decoder2(net_inputs)
-
         pred = self.dense(outputs)
-        self.get_loss(pred, tags, length)
+        loss = self.get_loss(pred, tags, signal)
+        return loss
 
 
 
@@ -180,8 +183,14 @@ def train():
     # 定义模型
     model = Model(n_words, num_tag, word_embed_dim)
 
-    for batch in train_data:
-        pred = model(batch)
-        break
+    opti = tf.keras.optimizers.Adam()
+    for idx, batch in enumerate(train_data):
+        with tf.GradientTape() as tape:
+            loss = model(batch)
+        grad = tape.gradient(loss, model.trainable_variables)
+        opti.apply_gradients(zip(grad, model.trainable_variables))
+        if idx % 100 == 0:
+            print(idx, "---->", loss.numpy())
+
 if __name__ =="__main__":
     train()
