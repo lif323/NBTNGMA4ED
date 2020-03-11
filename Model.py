@@ -171,7 +171,7 @@ class Model(tf.keras.Model):
 def train():
     # 数据集参数
     batch_size = 32
-    step_num = 10
+    step_num = 40
     data_processor = DataProcessor()
     train_data, test_data = data_processor.load_dataset(batch_size, step_num)
     # word embedding
