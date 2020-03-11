@@ -16,14 +16,17 @@ class SentLstmLayer(tf.keras.layers.Layer):
 
 
 class Attention(tf.keras.layers.Layer):
-    def __init__(self, dim=200):
+    def __init__(self, is_doc=False):
         super(Attention, self).__init__()
-        self.W = self.add_weight(shape=(dim, dim))
+        self.is_doc = is_doc
 
     def get_s(self, source, targets):
         source_w = tf.matmul(source, self.W)
         source_w = tf.expand_dims(source_w, 1)
         prob = tf.matmul(source_w, targets, adjoint_b=True)
+        if self.is_doc:
+            prob = tf.add(prob, self.b)
+
         prob = tf.squeeze(prob)
         prob = tf.tanh(prob)
         prob = tf.keras.activations.softmax(prob)
@@ -33,6 +36,9 @@ class Attention(tf.keras.layers.Layer):
         attention_seq = tf.squeeze(attention_seq)
         return attention_seq
 
+    def build(self, input_shape):
+        self.W = self.add_weight(shape=(input_shape[-1], input_shape[-1]))
+        self.b = self.add_weight(shape=(1, input_shape[-1]))
 
     def call(self, inputs):
         num_step = inputs.shape[1]
@@ -44,13 +50,13 @@ class Attention(tf.keras.layers.Layer):
         return outputs
 
 
-
 class LSTM_decoder(tf.keras.layers.Layer):
-    def __init__(self, lstm_dim, num_tags):
+    def __init__(self, lstm_dim, output_dim):
         super(LSTM_decoder, self).__init__()
         self.lstm_dim = lstm_dim
+        self.output_dim = output_dim
         self.lstm_cell = tf.keras.layers.LSTMCell(lstm_dim)
-        self.dense = tf.keras.layers.Dense(lstm_dim, use_bias=True)
+        self.dense = tf.keras.layers.Dense(output_dim, use_bias=True)
 
     def get_pred_tags(self, h):
         y_pre = self.dense(h)
@@ -61,7 +67,7 @@ class LSTM_decoder(tf.keras.layers.Layer):
         batch_size = inputs.shape[0]
         num_step = inputs.shape[1]
         outputs = list()
-        tag_pre = tf.zeros([batch_size, self.lstm_dim])
+        tag_pre = tf.zeros([batch_size, self.output_dim])
         cell = tf.zeros([batch_size, self.lstm_dim])
         hidden = tf.zeros([batch_size, self.lstm_dim])
         for ts in range(num_step):
@@ -93,11 +99,16 @@ class Model(tf.keras.Model):
 
         self.sent_layer = SentLstmLayer(lstm_dim)
 
-        self.attention = Attention(lstm_dim * 2)
+        self.attention = Attention()
 
         self.doc_bilstm = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_dim))
 
-        self.lstm_decoder = LSTM_decoder(lstm_dim, num_tags)
+        self.lstm_decoder = LSTM_decoder(lstm_dim, lstm_dim)
+        self.lstm_decoder2 = LSTM_decoder(lstm_dim, lstm_dim)
+        self.tag_attention = Attention()
+        self.doc_attention = Attention(is_doc=True)
+
+        self.dense = tf.keras.layers.Dense(num_tags)
 
 
     def doc_embedding(self, doc_around_sents):
@@ -117,16 +128,40 @@ class Model(tf.keras.Model):
         subtype_embed = self.subtypes_embed(subtypes)
         embed = tf.concat([word_embed, type_embed, subtype_embed], -1)
         return embed
+    def get_loss(self, logits, tags, length):
+        losses = tf.keras.losses.sparse_categorical_crossentropy(tags, logits)
+        mask = tf.sequence_mask(length)
+        print(mask.shape)
+        print(losses.shape)
+        losses = tf.boolean_mask(losses, mask)
+        print(losses.shape)
 
     def call(self, inputs):
         _, doc_around_sents, word_as_num, types, subtypes, tags = inputs
+        # 有效长度
+        used = tf.sign(tf.abs(word_as_num))
+        length = tf.reduce_sum(used, axis=-1)
+        print("------------------")
+        print(length)
+        print(length.shape)
         sent_embed = self.sent_embedding(word_as_num, types, subtypes)
         doc_embed = self.doc_embedding(doc_around_sents)
         outputs, h = self.sent_layer(sent_embed)
         sent_att_outputs = self.attention(outputs)
         net_inputs = tf.concat([sent_embed, sent_att_outputs], -1)
-        logits = self.lstm_decoder(net_inputs)
-        print(logits.shape)
+        outputs = self.lstm_decoder(net_inputs)
+
+
+        tag_attention = self.tag_attention(outputs)
+
+        net_inputs = tf.concat([tag_attention, sent_embed], -1)
+
+        outputs = self.lstm_decoder2(net_inputs)
+
+        pred = self.dense(outputs)
+        self.get_loss(pred, tags, length)
+
+
 
 
 
@@ -136,15 +171,12 @@ def train():
     step_num = 10
     data_processor = DataProcessor()
     train_data, test_data = data_processor.load_dataset(batch_size, step_num)
-
-
     # word embedding
     word_embed_dim = 100
     # vocab size
     n_words = data_processor.n_words
     # tags num
     num_tag = data_processor.num_tags
-
     # 定义模型
     model = Model(n_words, num_tag, word_embed_dim)
 
