@@ -20,6 +20,7 @@ class DataProcessor():
         sent = list()
         with open(path, "r") as fr:
             for line in fr:
+                # 删除右侧空格
                 line = line.rstrip()
                 if len(line) == 0:
                     if len(sent) > 0:
@@ -27,44 +28,60 @@ class DataProcessor():
                         sent = list()
                 else:
                     # 每行开头的 一个或多个空格 替换为 $
-                    if line[0] == " ":
-                        line = "$" + line[1:]
-                        print("True")
-                        word = line.split()
-                    else:
-                        word = line.split()
-                    sent.append(word)
+                    # 经过验证ACE数据集并没有该情况
+                    #if line[0] == " ":
+                    #    line = "$" + line[1:]
+                    #    print("True")
+                    #    word = line.split()
+                    #else:
+                    #    word = line.split()
+                    sent.append(line.split())
             if len(sent) > 0:
                 sents.append(sent)
         return sents
 
+    # 返回 word_index, index_word, tag_index, index_tag
     def word_tag_map(self, sents):
-        word_list = [[x[0] for x in s] for s in sents]
+
+        # 获取列表每个元素出现频率字典
+        def get_times(item_list):
+            ret = {}
+            for item in item_list:
+                if item not in ret:
+                    ret[item] = 1
+                else:
+                    ret[item] += 1
+            return ret
+
+        # 获取字符到文本的映射
+        def get_mapping(word_nums):
+            sorted_items = sorted(word_nums.items(), key=lambda x: (-x[1], x[0]))
+            word_index = {word[0]: index for index, word in enumerate(sorted_items)}
+            index_word = {index: word for word, index in word_index.items()}
+            return word_index, index_word
+
         word_list = list()
         tag_list = list()
         for s in sents:
             for w in s:
                 word_list.append(w[0])
                 tag_list.append(w[-1])
-        word_list = word_list + ["<PAD>", "<UNK>"]
 
-        word_list = set(word_list)
-        word_index = {word: index for index, word in enumerate(word_list)}
-        index_word = {index: word for index, word in enumerate(word_list)}
+        word_nums = get_times(word_list)
+        word_nums['<PAD>'] = len(word_list) + 2
+        word_nums['<UNK>'] = len(word_list) + 1
+        word_index, index_word = get_mapping(word_nums)
 
-        tag_list = set(tag_list)
-        tag_index = {tag: index for index, tag in enumerate(tag_list)}
-        index_tag = {index: tag for index, tag in enumerate(tag_list)}
+        tag_nums = get_times(tag_list)
+        tag_index, index_tag = get_mapping(tag_nums)
+
         return word_index, index_word, tag_index, index_tag
 
 
     # 获取一个句子周围的句子
     def get_doc_features(self, doc_id, word_index, doc_dict, word_as_num):
         sents_num = 8
-
-
         doc_sents = doc_dict[doc_id[0]]
-
         doc_as_num = list()
         # 文档文本数字化
         for sent in doc_sents:
@@ -74,19 +91,17 @@ class DataProcessor():
         sent_order = doc_as_num.index(word_as_num)
         # 文档中句子数量
         doc_sent_num = len(doc_as_num)
-
         # 如果文档中句子数量少于需要的数量
         doc_around_sent = None
         if doc_sent_num <= sents_num:
             doc_around_sent = doc_as_num
         else:
-            if sent_order <= sents_num/2:
+            if sent_order <= sents_num / 2:
                 doc_around_sent = doc_as_num[:sents_num]
             elif doc_sent_num - sent_order <= sents_num / 4:
                 doc_around_sent = doc_as_num[-sents_num:0]
             else:
                 doc_around_sent = doc_as_num[int(sent_order - sents_num / 2): int(sent_order + sents_num / 2)]
-
         return doc_around_sent
 
     def get_sub_features(self, entity_subtypes):
@@ -143,6 +158,7 @@ class DataProcessor():
             data_doc = fr.readlines()[0]
             doc_dict = json.loads(data_doc)
 
+
         data = []
         for s in sents:
             # 句子的单词列表
@@ -172,12 +188,7 @@ class DataProcessor():
                 # 将实体标签转变为 数字
                 types = self.get_seg_features(entity_types)
                 # 将实体子标签转变为 数字
-                try:
-                    subtypes = self.get_sub_features(entity_subtypes)
-                except:
-                    print(entity_subtypes)
-                    print(doc_id)
-                    os._exit(0)
+                subtypes = self.get_sub_features(entity_subtypes)
 
                 if is_train:
                     tags = [tag_index[t] for t in tags]
@@ -235,6 +246,7 @@ class DataProcessor():
                 types_list.append(types[: max_length])
                 subtypes_list.append(subtypes[: max_length])
                 tags_list.append(tags[: max_length])
+
         strings_list = np.asarray(strings_list)
         doc_around_sents_list = np.asarray(doc_around_sents_list)
         word_as_num_list = np.asarray(word_as_num_list)
@@ -245,9 +257,14 @@ class DataProcessor():
         return [strings_list, doc_around_sents_list, word_as_num_list, types_list, subtypes_list, tags_list]
 
     def load_dataset(self, batch_size, num_steps):
+        # len(train_sents)为句子数量
+        # train_sents = [w0, w1, w2, ..., wx, ..., wN]
+        # wx = [单词本身, 所属文档ID, 实体类别，实体类别子类， 事件类型标签]
         train_sents = self.load_sentences(self.train_file)
         test_sents = self.load_sentences(self.test_file)
+
         word_index, index_word, tag_index, index_tag = self.word_tag_map(train_sents)
+
         self.n_words = len(word_index)
         self.num_tags = len(tag_index)
 
@@ -257,6 +274,8 @@ class DataProcessor():
         train_data = self.process_data(train_sents, word_index, tag_index)
         test_data = self.process_data(test_sents, word_index, tag_index)
 
+
+
         train_data = self.sort_and_pad(train_data, batch_size, num_steps)
         test_data = self.sort_and_pad(test_data, batch_size, num_steps)
 
@@ -265,12 +284,19 @@ class DataProcessor():
 
 if __name__ == "__main__":
     dp = DataProcessor()
-    train_data, test_data = dp.load_dataset(32, 10)
-
-    a = train_data[0]
-    _, x0, x1, x2, x3, x4 = a 
-    print(type(x0))
-    x1 = np.asarray(x0)
-    _, x0, x1, x2, x3, x4 = a 
-    x0 = np.asarray(x0)
+    dp.load_dataset(20, 40)
+    # test word_tag_map
+    """
+    test = [[["aa", "AA"], ["bb", "BB"], ["bb", "BB"], ["cc", "CC"]]]
+    w_i, i_w, t_i, i_t = dp.word_tag_map(test)
+    print(w_i)
+    print("--------------------")
+    print(i_w)
+    print("--------------------")
+    print(t_i)
+    print("--------------------")
+    print(i_t)
+    """
+    #train_data, test_data = dp.load_dataset(20, 40)
+    #print(len(train_data))
 

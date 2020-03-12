@@ -3,17 +3,16 @@ import numpy as np
 from data_processor import DataProcessor
 import os
 
+
 class SentLstmLayer(tf.keras.layers.Layer):
     def __init__(self, lstm_dim):
         super(SentLstmLayer, self).__init__()
         self.sent_bilstm = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_dim, return_sequences=True, return_state=True))
 
-
     def call(self, inputs):
         outputs, h0, c0, h1, c1 = self.sent_bilstm(inputs)
         h = tf.concat([h0, h1], -1)
         return outputs, h
-
 
 class Attention(tf.keras.layers.Layer):
     def __init__(self, is_doc=False):
@@ -26,7 +25,6 @@ class Attention(tf.keras.layers.Layer):
         prob = tf.matmul(source_w, targets, adjoint_b=True)
         if self.is_doc:
             prob = tf.add(prob, self.b)
-
         prob = tf.squeeze(prob)
         prob = tf.tanh(prob)
         prob = tf.keras.activations.softmax(prob)
@@ -83,7 +81,6 @@ class Model(tf.keras.Model):
         super(Model, self).__init__()
         self.vocab_size = vocab_size
         self.word_embed_dim = word_embed_dim
-        # word embedding
         self.word_embed = tf.keras.layers.Embedding(self.vocab_size, self.word_embed_dim)
         # doc embedding
         # self.doc_embed = tf.keras.layers.Embedding(self.vocab_size, self.word_embed_dim)
@@ -146,10 +143,17 @@ class Model(tf.keras.Model):
         return loss
 
     def call(self, inputs):
+        # doc_around_sents (20, 8, 40)
+        # word_as_num (20, 40)
+        # types (20, 40)
+        # subtypes (20, 40)
+        # tags (20, 40)
         _, doc_around_sents, word_as_num, types, subtypes, tags = inputs
-        # 有效长度
+        # 非padding
         used = tf.sign(tf.abs(word_as_num))
         signal = tf.math.equal(used, tf.ones_like(used))
+        # 句子嵌入
+        # [20, 40, 140]
         sent_embed = self.sent_embedding(word_as_num, types, subtypes)
         #doc_embed = self.doc_embedding(doc_around_sents)
         outputs, h = self.sent_layer(sent_embed)
@@ -165,32 +169,35 @@ class Model(tf.keras.Model):
         return loss
 
 
-
-
-
 def train():
     # 数据集参数
-    batch_size = 32
+    batch_size = 20
+    # 句子长度
     step_num = 40
     data_processor = DataProcessor()
     train_data, test_data = data_processor.load_dataset(batch_size, step_num)
+
+    # 模型参数
     # word embedding
     word_embed_dim = 100
     # vocab size
     n_words = data_processor.n_words
     # tags num
     num_tag = data_processor.num_tags
+    
+    types_embed_dim = 20
+    subtypes_embed_dim = 20
     # 定义模型
     model = Model(n_words, num_tag, word_embed_dim)
-
+    # 定义优化器
     opti = tf.keras.optimizers.Adam()
     for idx, batch in enumerate(train_data):
         with tf.GradientTape() as tape:
             loss = model(batch)
         grad = tape.gradient(loss, model.trainable_variables)
         opti.apply_gradients(zip(grad, model.trainable_variables))
-        if idx % 100 == 0:
-            print(idx, "---->", loss.numpy())
+        if (idx + 1) % 100 == 0:
+            print(idx + 1, "---->", loss.numpy())
 
 if __name__ =="__main__":
     train()
