@@ -127,6 +127,7 @@ class Model(tf.keras.Model):
 
     def get_loss(self, logits, tags, signal):
         losses = tf.keras.losses.sparse_categorical_crossentropy(tags, logits)
+        """
         losses = tf.boolean_mask(losses, signal)
 
         tag_NOT_O = tf.sign(tf.abs(tags))
@@ -139,6 +140,7 @@ class Model(tf.keras.Model):
 
         alpha = 5
         losses = alpha * (losses * tag_NOT_O) + losses * tag_is_O
+        """
         loss = tf.reduce_sum(losses)
         return loss
 
@@ -156,7 +158,11 @@ class Model(tf.keras.Model):
         # [20, 40, 140]
         sent_embed = self.sent_embedding(word_as_num, types, subtypes)
         #doc_embed = self.doc_embedding(doc_around_sents)
+
+        # outputs [20, 40, 200]
+        # h [20, 200]
         outputs, h = self.sent_layer(sent_embed)
+        # sent_att_outputs [20, 40, 200]
         sent_att_outputs = self.attention(outputs)
         net_inputs = tf.concat([sent_embed, sent_att_outputs], -1)
         outputs = self.lstm_decoder(net_inputs)
@@ -190,7 +196,7 @@ def train():
     # 定义模型
     model = Model(n_words, num_tag, word_embed_dim)
     # 定义优化器
-    opti = tf.keras.optimizers.Adam()
+    opti = tf.keras.optimizers.Adam(learning_rate=0.00001)
     for idx, batch in enumerate(train_data):
         with tf.GradientTape() as tape:
             loss = model(batch)
