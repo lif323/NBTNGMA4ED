@@ -4,6 +4,7 @@ import json
 import os
 import math
 import numpy as np
+import random
 
 class DataProcessor():
     def __init__(self, path="./data/"):
@@ -278,13 +279,20 @@ class DataProcessor():
 
         train_data = self.sort_and_pad(train_data, batch_size, num_steps)
         test_data = self.sort_and_pad(test_data, batch_size, num_steps)
+        random.shuffle(train_data)
+        random.shuffle(test_data)
 
         return train_data, test_data
 
 
 if __name__ == "__main__":
     dp = DataProcessor()
-    dp.load_dataset(20, 40)
+    train_data, test_data = dp.load_dataset(20, 40)
+    print(train_data[0][0][0])
+    print(train_data[0][0][0])
+    with open("./train_data.pkl", "wb") as fw:
+        pickle.dump(train_data, fw)
+
     # test word_tag_map
     """
     test = [[["aa", "AA"], ["bb", "BB"], ["bb", "BB"], ["cc", "CC"]]]
