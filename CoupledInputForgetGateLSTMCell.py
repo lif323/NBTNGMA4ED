@@ -12,7 +12,7 @@ class CoupledInputForgetGateLSTMCell(tf.keras.layers.Layer):
     def __init__(self, units=256, **kwargs):
         # lstm 维度
         self.units = units
-        super(LSTM_CELL, self).__init__(**kwargs)
+        super(CoupledInputForgetGateLSTMCell, self).__init__(**kwargs)
 
     def build(self, input_shape):
         input_dim = input_shape[-1]
@@ -59,7 +59,7 @@ class CoupledInputForgetGateLSTMCell(tf.keras.layers.Layer):
 class Rnn(tf.keras.layers.Layer):
     def __init__(self, units=128):
         super(Rnn, self).__init__()
-        self.cell = LSTM_CELL(units)
+        self.cell = CoupledInputForgetGateLSTMCell(units)
         self.init_state = None
     def build(self, input_shape):
         shape = input_shape.as_list()
@@ -78,5 +78,6 @@ class Rnn(tf.keras.layers.Layer):
 
 if __name__ == "__main__":
     a = tf.random.normal(shape=(2, 3, 4))
-    print(a)
-    print((1 - a))
+    rnn = Rnn()
+    h = rnn(a)
+    print(h.shape)

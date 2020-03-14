@@ -265,6 +265,10 @@ class DataProcessor():
         test_sents = self.load_sentences(self.test_file)
 
         word_index, index_word, tag_index, index_tag = self.word_tag_map(train_sents)
+        self.word_index = word_index
+        self.index_word = index_word
+        self.tag_index = tag_index
+        self.index_tag = index_tag
 
         self.n_words = len(word_index)
         self.num_tags = len(tag_index)
@@ -275,8 +279,6 @@ class DataProcessor():
         train_data = self.process_data(train_sents, word_index, tag_index)
         test_data = self.process_data(test_sents, word_index, tag_index)
 
-
-
         train_data = self.sort_and_pad(train_data, batch_size, num_steps)
         test_data = self.sort_and_pad(test_data, batch_size, num_steps)
         random.shuffle(train_data)
@@ -285,13 +287,52 @@ class DataProcessor():
         return train_data, test_data
 
 
+    def load_word2vec(self, embed_path, word_dim):
+        index_word = self.index_word
+        embed_weights = np.random.rand(len(index_word), word_dim)
+        print(embed_weights.shape)
+        pre_trained = {}
+
+        emb_invalid = 0
+        
+        with open(embed_path, "r") as fr:
+            for line in fr:
+                line = line.rstrip().split()
+                if len(line) == word_dim + 1:
+                    pre_trained[line[0]] = np.array([float(x) for x in line[1:]]).astype(np.float32)
+                else:
+                    emb_invalid += 1
+            if emb_invalid > 0:
+                print("WARNING: {} invalid lines".format(emb_invalid))
+
+        num_words = len(index_word)
+
+        c_found = 0
+        c_lower = 0
+        for i in range(num_words):
+            word = index_word[i]
+            if word in pre_trained:
+                embed_weights[i] = pre_trained[word]
+                c_found += 1
+            elif word.lower() in pre_trained:
+                embed_weights[i] = pre_trained[word.lower()]
+                c_lower += 1
+        return embed_weights
+
 if __name__ == "__main__":
     dp = DataProcessor()
     train_data, test_data = dp.load_dataset(20, 40)
-    print(train_data[0][0][0])
-    print(train_data[0][0][0])
-    with open("./train_data.pkl", "wb") as fw:
-        pickle.dump(train_data, fw)
+    embed = dp.load_word2vec("./data/100.utf8", dp.index_word, 100)
+    print(embed.shape)
+    embed_layer = tf.keras.layers.Embedding(input_dim=embed.shape[0], 
+                                      output_dim=embed.shape[1], 
+                                      weights=[embed])
+    y = np.array([[1]])
+    z = embed_layer(y)
+    
+    print(z == [embed[1]])
+    
+
 
     # test word_tag_map
     """
@@ -307,4 +348,3 @@ if __name__ == "__main__":
     """
     #train_data, test_data = dp.load_dataset(20, 40)
     #print(len(train_data))
-
