@@ -43,7 +43,6 @@ class DataProcessor():
 
     # 返回 word_index, index_word, tag_index, index_tag
     def word_tag_map(self, sents):
-
         # 获取列表每个元素出现频率字典
         def get_times(item_list):
             ret = {}
@@ -53,7 +52,6 @@ class DataProcessor():
                 else:
                     ret[item] += 1
             return ret
-
         # 获取字符到文本的映射
         def get_mapping(word_nums):
             sorted_items = sorted(word_nums.items(), key=lambda x: (-x[1], x[0]))
@@ -322,11 +320,9 @@ class DataProcessor():
 if __name__ == "__main__":
     dp = DataProcessor()
     train_data, test_data = dp.load_dataset(20, 40)
-    embed = dp.load_word2vec("./data/100.utf8", dp.index_word, 100)
+    embed = dp.load_word2vec("./data/100.utf8", 100)
     print(embed.shape)
-    embed_layer = tf.keras.layers.Embedding(input_dim=embed.shape[0], 
-                                      output_dim=embed.shape[1], 
-                                      weights=[embed])
+    embed_layer = tf.keras.layers.Embedding(input_dim=embed.shape[0], output_dim=embed.shape[1], weights=[embed])
     y = np.array([[1]])
     z = embed_layer(y)
     

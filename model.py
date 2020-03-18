@@ -37,7 +37,6 @@ class Attention(tf.keras.layers.Layer):
     def build(self, input_shape):
         self.W = self.add_weight(shape=(input_shape[-1], input_shape[-1]))
 
-
     def call(self, inputs):
         num_step = inputs.shape[1]
         output = list()
@@ -91,14 +90,13 @@ class Gate(tf.keras.layers.Layer):
         return outputs
         
     
-class LSTM_decoder(tf.keras.layers.Layer):
+class LstmDecoder(tf.keras.layers.Layer):
     def __init__(self, lstm_dim, output_dim):
-        super(LSTM_decoder, self).__init__()
+        super(LstmDecoder, self).__init__()
         self.lstm_dim = lstm_dim
         self.output_dim = output_dim
         self.lstm_cell = tf.keras.layers.LSTMCell(lstm_dim)
         self.dense = tf.keras.layers.Dense(output_dim, use_bias=True)
-
 
     def get_pred_tags(self, h):
         y_pre = self.dense(h)
@@ -139,8 +137,8 @@ class Model(tf.keras.Model):
         self.sent_layer = SentLstmLayer(lstm_dim)
         self.attention = Attention()
         self.doc_bilstm = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_dim))
-        self.lstm_decoder = LSTM_decoder(lstm_dim, lstm_dim)
-        self.lstm_decoder2 = LSTM_decoder(lstm_dim, lstm_dim)
+        self.lstm_decoder = LstmDecoder(lstm_dim, lstm_dim)
+        self.lstm_decoder2 = LstmDecoder(lstm_dim, lstm_dim)
         self.tag_attention = Attention()
         self.doc_attention = DocAttention()
         self.gate = Gate(lstm_dim * 2)
@@ -180,8 +178,8 @@ class Model(tf.keras.Model):
         net_inputs = tf.concat([tag_attention, sent_embed], -1)
         outputs = self.lstm_decoder2(net_inputs)
         pred = self.dense(outputs)
-        loss, loss_2  = self.get_loss(pred, tags, signal)
-        return loss, loss_2, pred
+        loss_sum, loss_mean  = self.get_loss(pred, tags, signal)
+        return loss_sum, loss_mean, pred
 
     def doc_embedding(self, doc_around_sents):
         num_step = doc_around_sents.shape[1]
@@ -217,17 +215,17 @@ class Model(tf.keras.Model):
         tag_not_o = tf.cast(tag_not_o, dtype=tf.float32)
         alpha = 5
         losses = alpha * (losses * tag_not_o) + losses * tag_is_o
-        loss = tf.reduce_sum(losses)
-        loss_2 = tf.reduce_mean(losses)
-        return loss, loss_2
+        loss_sum = tf.reduce_sum(losses)
+        loss_mean = tf.reduce_mean(losses)
+        return loss_sum, loss_mean
 
-#@tf.function
+@tf.function
 def train_step(opti, batch, model):
     with tf.GradientTape() as tape:
-        loss,loss_2, _  = model(batch)
-    grad = tape.gradient(loss, model.trainable_variables)
+        loss_sum, loss_mean, _  = model(batch)
+    grad = tape.gradient(loss_sum, model.trainable_variables)
     opti.apply_gradients(zip(grad, model.trainable_variables))
-    return loss, loss_2
+    return loss_sum, loss_mean
 
 
 def test_when_train(data_processor, model, test_data):
@@ -270,11 +268,10 @@ def test_when_train(data_processor, model, test_data):
             appear_tag.update(ret[i])
 
     print("==========================================")
-    #all_tags_name = list(data_processor.tag_index.keys())
     index_tag = data_processor.index_tag
     tags_name = [index_tag[i] for i in list(appear_tag)]
-    ans = classification_report(golds, preds, target_names = tags_name, zero_division=0)
-    print(ans)
+    metrics = classification_report(golds, preds, target_names = tags_name, zero_division=0)
+    print(metrics)
 
 def train():
     # 数据集参数
@@ -292,8 +289,9 @@ def train():
     num_tag = data_processor.num_tags
     types_embed_dim = 20
     subtypes_embed_dim = 20
+    embed_path = "./data/100.utf8"
     # 定义模型
-    initial_embed = data_processor.load_word2vec("./data/100.utf8", 100)
+    initial_embed = data_processor.load_word2vec(embed_path, 100)
     model = Model(n_words, num_tag, initial_embed=initial_embed)
     # 定义优化器
     opti = tf.keras.optimizers.Adam(learning_rate=0.0001)
@@ -302,9 +300,7 @@ def train():
         for idx, batch in enumerate(train_data):
             if start is None:
                 start = time.time()
-
-            loss, loss_2 = train_step(opti, batch, model)
-
+            loss_sum, loss_mean  = train_step(opti, batch, model)
             if (idx + 1) % 100 == 0:
                 ends = time.time()
                 cost = ends - start
@@ -312,7 +308,7 @@ def train():
                 weights = model.get_weights()
                 with open("./model/model.pkl", "wb") as fw:
                     pickle.dump(weights, fw)
-                print(idx + 1, "---->", loss_2.numpy(), "---> time cost: ", cost)
+                print(idx + 1, "---->", loss_mean.numpy(), "---> time cost: ", cost)
                 test_when_train(data_processor, model, test_data)
 
 if __name__ =="__main__":
