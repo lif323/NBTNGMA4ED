@@ -1,4 +1,4 @@
-# BTNGMA4ED
+# NBTNGMA4ED
 事件抽取模型
 原项目地址: https://github.com/yubochen/NBTNGMA4ED
 ## 主要工作
